@@ -1,0 +1,14 @@
+{
+  "database": {
+    "host": "localhost",
+    "user": "root",
+    "password": "your password",
+    "database": "mailboxes",
+    "port": 3100
+  },
+  "email_server": {
+    "server": "mailserverurl",
+    "username": "mailboxusername",
+    "password": "your_password"
+  }
+}
