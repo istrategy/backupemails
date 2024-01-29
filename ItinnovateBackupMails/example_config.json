@@ -10,5 +10,6 @@
     "server": "mailserverurl",
     "username": "mailboxusername",
     "password": "your_password"
-  }
+  },
+  "download_directory": "/path/to/download/directory"
 }
