@@ -1,6 +1,7 @@
 import imaplib2
 import email
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
 import mysql.connector
 import json
 from hashlib import sha256
@@ -9,16 +10,16 @@ from datetime import datetime
 
 def parse_date(date_str):
     try:
-        # Parse the date string
-        date_obj = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
-
-        # Convert the date object to the MySQL-compatible format
-        mysql_date_str = date_obj.strftime("%Y-%m-%d %H:%M:%S")
-
-        return mysql_date_str
-    except ValueError:
-        print("Error: Unable to parse date:", date_str)
+        date_obj = parsedate_to_datetime(date_str)
+        if date_obj:
+            mysql_date_str = date_obj.strftime("%Y-%m-%d %H:%M:%S")
+            return mysql_date_str
+        else:
+            raise ValueError("Unable to parse date")
+    except Exception as e:
+        print("Error:", e)
         return None
+
 
 
 
@@ -31,7 +32,6 @@ def decode_subject(header):
         subject = subject.decode(charset)
     return subject
 
-# Function to save email and attachments to the database
 # Function to save email and attachments to the database
 def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments):
     # Load database configuration from config file
@@ -152,6 +152,6 @@ for num in data[0].split():
         mail.store(num, '+FLAGS', '\\Deleted')
 
 # Close the connection to the IMAP server
-# mail.expunge()
+mail.expunge()
 mail.close()
 mail.logout()
