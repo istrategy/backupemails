@@ -148,10 +148,10 @@ for num in data[0].split():
     save_email_to_database(1, subject, sender, receiver, date, body, attachments)
 
     # Delete the email if the delete_mails flag is true
-    if delete_mails:
-        mail.store(num, '+FLAGS', '\\Deleted')
+    # if delete_mails:
+    #     mail.store(num, '+FLAGS', '\\Deleted')
 
 # Close the connection to the IMAP server
-mail.expunge()
+# mail.expunge()
 mail.close()
 mail.logout()
