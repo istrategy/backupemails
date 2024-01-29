@@ -11,5 +11,6 @@
     "username": "mailboxusername",
     "password": "your_password"
   },
-  "download_directory": "/path/to/download/directory"
+  "download_directory": "/path/to/download/directory",
+  "delete_mails": true
 }

@@ -17,8 +17,10 @@ def parse_date(date_str):
 
         return mysql_date_str
     except ValueError:
-        print("Error: Invalid date format")
+        print("Error: Unable to parse date:", date_str)
         return None
+
+
 
 # Function to decode email header
 def decode_subject(header):
@@ -29,6 +31,7 @@ def decode_subject(header):
         subject = subject.decode(charset)
     return subject
 
+# Function to save email and attachments to the database
 # Function to save email and attachments to the database
 def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments):
     # Load database configuration from config file
@@ -55,11 +58,18 @@ def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, at
             email_id = cursor.lastrowid
             print("Email inserted into the database.")
 
-            # Insert attachments into the database
+            # Insert attachments into the database if they are not duplicates
             for filename, attachment_data in attachments.items():
-                insert_attachment_query = "INSERT INTO attachments (email_id, filename, data) VALUES (%s, %s, %s)"
-                cursor.execute(insert_attachment_query, (email_id, filename, attachment_data))
-                print(f"Attachment '{filename}' saved in the database.")
+                # Check if attachment with the same filename already exists
+                cursor.execute("SELECT id FROM attachments WHERE email_id = %s AND filename = %s", (email_id, filename))
+                existing_attachment = cursor.fetchone()
+                if not existing_attachment:
+                    # Attachment does not exist, insert it into the database
+                    insert_attachment_query = "INSERT INTO attachments (email_id, filename, data) VALUES (%s, %s, %s)"
+                    cursor.execute(insert_attachment_query, (email_id, filename, attachment_data))
+                    print(f"Attachment '{filename}' saved in the database.")
+                else:
+                    print(f"Attachment '{filename}' already exists for this email, skipping.")
 
         db_connection.commit()
     except mysql.connector.Error as error:
@@ -73,6 +83,8 @@ def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, at
 # Load email server configuration from config file
 with open("config.json") as config_file:
     config = json.load(config_file)
+
+delete_mails = config.get("delete_mails", False)  # Get the delete_mails flag from config
 
 # Connect to the IMAP server
 mail = imaplib2.IMAP4_SSL(config["email_server"]["server"], 993)
@@ -93,14 +105,14 @@ for num in data[0].split():
     # Parse the raw email
     msg = email.message_from_bytes(raw_email)
 
-    # Extract email headers
+    # Extract email headers and content
     try:
         subject = decode_subject(msg["subject"])
         sender = msg["from"]
         receiver = msg["to"]
         date = parse_date(msg["date"])
         if date is None:
-            print("Error: Unable to parse date")
+            print("Error: Unable to parse date",msg["date"])
             continue  # Skip this email if date parsing fails
 
         # Extract email body
@@ -135,6 +147,11 @@ for num in data[0].split():
     # Save email to database if it's not a duplicate
     save_email_to_database(1, subject, sender, receiver, date, body, attachments)
 
+    # Delete the email if the delete_mails flag is true
+    if delete_mails:
+        mail.store(num, '+FLAGS', '\\Deleted')
+
 # Close the connection to the IMAP server
+# mail.expunge()
 mail.close()
 mail.logout()
