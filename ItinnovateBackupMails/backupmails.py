@@ -21,8 +21,6 @@ def parse_date(date_str):
         return None
 
 
-
-
 # Function to decode email header
 def decode_subject(header):
     decoded_header = decode_header(header)
@@ -32,12 +30,9 @@ def decode_subject(header):
         subject = subject.decode(charset)
     return subject
 
-# Function to save email and attachments to the database
-def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments):
-    # Load database configuration from config file
-    with open("config.json") as config_file:
-        config = json.load(config_file)
 
+# Function to save email and attachments to the database
+def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments, config):
     try:
         # Connect to MySQL
         db_connection = mysql.connector.connect(**config["database"])
@@ -80,78 +75,103 @@ def save_email_to_database(mailbox_id, subject, sender, receiver, date, body, at
             cursor.close()
             db_connection.close()
 
+
 # Load email server configuration from config file
 with open("config.json") as config_file:
     config = json.load(config_file)
 
 delete_mails = config.get("delete_mails", False)  # Get the delete_mails flag from config
 
-# Connect to the IMAP server
-mail = imaplib2.IMAP4_SSL(config["email_server"]["server"], 993)
-mail.login(config["email_server"]["username"], config["email_server"]["password"])
+# Connect to the MySQL database
+try:
+    db_connection = mysql.connector.connect(**config["database"])
+    cursor = db_connection.cursor()
 
-# Select the mailbox (inbox)
-mail.select("inbox")
+    # Retrieve records from the mailboxes table
+    cursor.execute("SELECT * FROM mailboxes")
+    mailboxes = cursor.fetchall()
 
-# Search for all emails in the inbox
-result, data = mail.search(None, "ALL")
+    # Iterate through each mailbox record
+    for mailbox in mailboxes:
+        mailbox_id, username, email_address,  _,password, server_imap, port_imap, _, server_smtp, port_smtp, _ = mailbox
 
-# Iterate through email messages
-for num in data[0].split():
-    # Fetch the email message by ID
-    result, message_data = mail.fetch(num, "(RFC822)")
-    raw_email = message_data[0][1]
+        # Connect to the IMAP server
+        print(username, email_address, password, server_imap,password)
+        try:
+            mail        = imaplib2.IMAP4_SSL(server_imap, port_imap)
+            mail.login(username, password)
 
-    # Parse the raw email
-    msg = email.message_from_bytes(raw_email)
+            # Select the mailbox (inbox)
+            mail.select("inbox")
 
-    # Extract email headers and content
-    try:
-        subject = decode_subject(msg["subject"])
-        sender = msg["from"]
-        receiver = msg["to"]
-        date = parse_date(msg["date"])
-        if date is None:
-            print("Error: Unable to parse date",msg["date"])
-            continue  # Skip this email if date parsing fails
+            # Search for all emails in the inbox
+            result, data = mail.search(None, "ALL")
 
-        # Extract email body
-        body = ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                content_type = part.get_content_type()
-                if "attachment" in content_type:
+            # Iterate through email messages
+            for num in data[0].split():
+                # Fetch the email message by ID
+                result, message_data = mail.fetch(num, "(RFC822)")
+                raw_email = message_data[0][1]
+
+                # Parse the raw email
+                msg = email.message_from_bytes(raw_email)
+
+                # Extract email headers and content
+                try:
+                    subject = decode_subject(msg["subject"])
+                    sender = msg["from"]
+                    receiver = msg["to"]
+                    date = parse_date(msg["date"])
+                    if date is None:
+                        print("Error: Unable to parse date", msg["date"])
+                        continue  # Skip this email if date parsing fails
+
+                    # Extract email body
+                    body = ""
+                    if msg.is_multipart():
+                        for part in msg.walk():
+                            content_type = part.get_content_type()
+                            if "attachment" in content_type:
+                                filename = part.get_filename()
+                                attachment_data = part.get_payload(decode=True)
+                                attachments[filename] = attachment_data
+                            elif content_type == "text/plain":
+                                body = part.get_payload(decode=True).decode(part.get_content_charset(), 'ignore')
+                    else:
+                        body = msg.get_payload(decode=True).decode(msg.get_content_charset(), 'ignore')
+                except Exception as e:
+                    print("Error:", e)
+
+                # Extract attachments
+                attachments = {}
+                for part in msg.walk():
+                    if part.get_content_maintype() == "multipart":
+                        continue
                     filename = part.get_filename()
-                    attachment_data = part.get_payload(decode=True)
-                    attachments[filename] = attachment_data
-                elif content_type == "text/plain":
-                    body = part.get_payload(decode=True).decode(part.get_content_charset(), 'ignore')
-        else:
-            body = msg.get_payload(decode=True).decode(msg.get_content_charset(), 'ignore')
-    except Exception as e:
-        print("Error:",e)
+                    if filename:
+                        attachment_data = part.get_payload(decode=True)
+                        attachments[filename] = attachment_data
 
-    # Extract attachments
-    attachments = {}
-    for part in msg.walk():
-        if part.get_content_maintype() == "multipart":
-            continue
-        filename = part.get_filename()
-        if filename:
-            attachment_data = part.get_payload(decode=True)
-            attachments[filename] = attachment_data
+                # Calculate hash of the email content to check for duplicates
+                email_content_hash = sha256(raw_email).hexdigest()
 
-    # Calculate hash of the email content to check for duplicates
-    email_content_hash = sha256(raw_email).hexdigest()
+                # Save email to database if it's not a duplicate
+                save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments, config)
 
-    # Save email to database if it's not a duplicate
-    save_email_to_database(1, subject, sender, receiver, date, body, attachments)
+                # Delete the email if the delete_mails flag is true
+                if delete_mails:
+                    mail.store(num, '+FLAGS', '\\Deleted')
+            mail.close()
+            mail.logout()
+        except Exception as e:
+            print("Error:", e)
+        # Close the connection to the IMAP server
 
-    # Delete the email if the delete_mails flag is true
-    # if delete_mails:
-    #     mail.store(num, '+FLAGS', '\\Deleted')
 
-# Close the connection to the IMAP server
-# mail.expunge()
-mail.close()
-mail.logout()
+except mysql.connector.Error as error:
+    print("Error while connecting to MySQL:", error)
+finally:
+    # Close MySQL connections
+    if 'db_connection' in locals():
+        cursor.close()
+        db_connection.close()
