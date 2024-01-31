@@ -1,7 +1,7 @@
 # BACKUP EMAILS
 ### Rational
-This project was created to free up space on my hosting account. The account does not offer a way to 
-download mailboxes and I wanted to archive it for future use.
+This project was created to free up space on my hosting account. The account did not offer a way to 
+download mailboxes and I wanted to archive emails it for future reference.
 
 ### How it works
 The mailboxes are defined in the mailboxes table (See below).
