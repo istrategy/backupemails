@@ -15,9 +15,9 @@ def parse_date(date_str):
             mysql_date_str = date_obj.strftime("%Y-%m-%d %H:%M:%S")
             return mysql_date_str
         else:
-            raise ValueError("Unable to parse date")
+            raise ValueError("Unable to parse date",date_str)
     except Exception as e:
-        print("Error:", e)
+        print("Error:", e,date_str)
         return None
 
 
@@ -88,84 +88,94 @@ try:
     cursor = db_connection.cursor()
 
     # Retrieve records from the mailboxes table
-    cursor.execute("SELECT * FROM mailboxes")
+    cursor.execute("SELECT * FROM mailboxes where skipaccount = 0 ")
     mailboxes = cursor.fetchall()
 
     # Iterate through each mailbox record
     for mailbox in mailboxes:
-        mailbox_id, username, email_address,  _,password, server_imap, port_imap, _, server_smtp, port_smtp, _ = mailbox
+        mailbox_id, username, email_address,  _,password, server_imap, port_imap, _, server_smtp, port_smtp, delete_mails,skipaccount  = mailbox
 
         # Connect to the IMAP server
-        print(username, email_address, password, server_imap,password)
-        try:
-            mail        = imaplib2.IMAP4_SSL(server_imap, port_imap)
-            mail.login(username, password)
+        print(username, email_address, password, server_imap,password, skipaccount, delete_mails)
+        if skipaccount == 1:
+            print("Skipping account", email_address)
+        else:
+            print("Processing account", email_address)
+            try:
+                mail        = imaplib2.IMAP4_SSL(server_imap, port_imap)
+                mail.login(username, password)
 
-            # Select the mailbox (inbox)
-            mail.select("inbox")
+                # Select the mailbox (inbox)
+                mail.select("inbox")
 
-            # Search for all emails in the inbox
-            result, data = mail.search(None, "ALL")
+                # Search for all emails in the inbox
+                result, data = mail.search(None, "ALL")
 
-            # Iterate through email messages
-            for num in data[0].split():
-                # Fetch the email message by ID
-                result, message_data = mail.fetch(num, "(RFC822)")
-                raw_email = message_data[0][1]
+                # Iterate through email messages
+                for num in data[0].split():
+                    # Fetch the email message by ID
+                    result, message_data = mail.fetch(num, "(RFC822)")
+                    raw_email = message_data[0][1]
 
-                # Parse the raw email
-                msg = email.message_from_bytes(raw_email)
+                    # Parse the raw email
+                    msg = email.message_from_bytes(raw_email)
 
-                # Extract email headers and content
-                try:
-                    subject = decode_subject(msg["subject"])
-                    sender = msg["from"]
-                    receiver = msg["to"]
-                    date = parse_date(msg["date"])
-                    if date is None:
-                        print("Error: Unable to parse date", msg["date"])
-                        continue  # Skip this email if date parsing fails
+                    # Extract email headers and content
+                    try:
+                        subject = decode_subject(msg["subject"])
+                        sender = msg["from"]
+                        receiver = msg["to"]
+                        print(msg["date"])
+                        date = parse_date(msg["date"])
+                        print(date)
+                        if date is None:
+                            print("Error: Unable to parse date", msg["date"])
+                            continue  # Skip this email if date parsing fails
 
-                    # Extract email body
-                    body = ""
-                    if msg.is_multipart():
-                        for part in msg.walk():
-                            content_type = part.get_content_type()
-                            if "attachment" in content_type:
-                                filename = part.get_filename()
-                                attachment_data = part.get_payload(decode=True)
-                                attachments[filename] = attachment_data
-                            elif content_type == "text/plain":
-                                body = part.get_payload(decode=True).decode(part.get_content_charset(), 'ignore')
-                    else:
-                        body = msg.get_payload(decode=True).decode(msg.get_content_charset(), 'ignore')
-                except Exception as e:
-                    print("Error:", e)
+                        # Extract email body
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                content_type = part.get_content_type()
+                                if "attachment" in content_type:
+                                    filename = part.get_filename()
+                                    attachment_data = part.get_payload(decode=True)
+                                    attachments[filename] = attachment_data
+                                elif content_type == "text/plain":
+                                    body = part.get_payload(decode=True).decode(part.get_content_charset(), 'ignore')
+                        else:
+                            body = msg.get_payload(decode=True).decode(msg.get_content_charset(), 'ignore')
+                    except Exception as e:
+                        print("Error:", e)
+                        if delete_mails:
+                            mail.store(num, '+FLAGS', '\\Deleted')
+                    # Extract attachments
+                    attachments = {}
+                    for part in msg.walk():
+                        if part.get_content_maintype() == "multipart":
+                            continue
+                        filename = part.get_filename()
+                        if filename:
+                            attachment_data = part.get_payload(decode=True)
+                            attachments[filename] = attachment_data
 
-                # Extract attachments
-                attachments = {}
-                for part in msg.walk():
-                    if part.get_content_maintype() == "multipart":
-                        continue
-                    filename = part.get_filename()
-                    if filename:
-                        attachment_data = part.get_payload(decode=True)
-                        attachments[filename] = attachment_data
+                    # Calculate hash of the email content to check for duplicates
+                    email_content_hash = sha256(raw_email).hexdigest()
 
-                # Calculate hash of the email content to check for duplicates
-                email_content_hash = sha256(raw_email).hexdigest()
+                    # Save email to database if it's not a duplicate
+                    save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments, config)
 
-                # Save email to database if it's not a duplicate
-                save_email_to_database(mailbox_id, subject, sender, receiver, date, body, attachments, config)
-
-                # Delete the email if the delete_mails flag is true
+                    # Delete the email if the delete_mails flag is true
+                    if delete_mails:
+                        mail.store(num, '+FLAGS', '\\Deleted')
                 if delete_mails:
-                    mail.store(num, '+FLAGS', '\\Deleted')
-            mail.close()
-            mail.logout()
-        except Exception as e:
-            print("Error:", e)
-        # Close the connection to the IMAP server
+                    mail.expunge()
+
+                mail.close()
+                mail.logout()
+            except Exception as e:
+                print("Error:", e)
+            # Close the connection to the IMAP server
 
 
 except mysql.connector.Error as error:
