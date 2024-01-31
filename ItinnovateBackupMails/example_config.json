@@ -6,11 +6,7 @@
     "database": "mailboxes",
     "port": 3100
   },
-  "email_server": {
-    "server": "mailserverurl",
-    "username": "mailboxusername",
-    "password": "your_password"
-  },
+
   "download_directory": "/path/to/download/directory",
   "delete_mails": true
 }
