@@ -25,7 +25,9 @@ There is also a _requirements.txt_ file.
 To use the _downloadfile.py_ script to view email attachments one must set up the "download_directory" in the _config.json_ file.
 
 ### Future improvements
-There are a few encoding issues with some of the mail headers. The scripts deletes the mails if the mailbox.deletemails is set.
+There are a few encoding issues with some of the mail headers. The scripts delete the mails if the _"mailbox.deletemails"_ is set.  
+  
+The script only checks the inboxes. In future all folders could be added programmatically including the Send Items.
 # Contact Details
 This script was created by 
 
